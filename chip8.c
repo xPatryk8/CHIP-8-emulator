@@ -22,7 +22,7 @@ typedef struct {
   uint8_t sound_timer;
   uint16_t stack[16];
   uint16_t *stack_pointer;
-  uint8_t keys[16];
+  bool keypad[16];
 } chip_8;
 
 typedef struct {
@@ -158,6 +158,114 @@ void draw_screen(chip_8 *chip) {
     }
 }
 
+void get_input(chip_8 *chip) {
+  KeyboardKey key;
+  key = GetKeyPressed();
+  if (IsKeyPressed(key)) {
+    switch (key) {
+    case KEY_ONE:
+      chip->keypad[0x1] = true;
+      break;
+    case KEY_TWO:
+      chip->keypad[0x2] = true;
+      break;
+    case KEY_THREE:
+      chip->keypad[0x3] = true;
+      break;
+    case KEY_FOUR:
+      chip->keypad[0xC] = true;
+      break;
+    case KEY_Q:
+      chip->keypad[0x4] = true;
+      break;
+    case KEY_W:
+      chip->keypad[0x5] = true;
+      break;
+    case KEY_E:
+      chip->keypad[0x6] = true;
+      break;
+    case KEY_R:
+      chip->keypad[0xD] = true;
+      break;
+    case KEY_A:
+      chip->keypad[0x7] = true;
+      break;
+    case KEY_S:
+      chip->keypad[0x8] = true;
+      break;
+    case KEY_D:
+      chip->keypad[0x9] = true;
+      break;
+    case KEY_F:
+      chip->keypad[0xE] = true;
+      break;
+    case KEY_Z:
+      chip->keypad[0xA] = true;
+      break;
+    case KEY_X:
+      chip->keypad[0x0] = true;
+      break;
+    case KEY_C:
+      chip->keypad[0xB] = true;
+      break;
+    case KEY_V:
+      chip->keypad[0xF] = true;
+      break;
+    }
+  } else if (IsKeyReleased(key)) {
+    switch (key) {
+    case KEY_ONE:
+      chip->keypad[0x1] = false;
+      break;
+    case KEY_TWO:
+      chip->keypad[0x2] = false;
+      break;
+    case KEY_THREE:
+      chip->keypad[0x3] = false;
+      break;
+    case KEY_FOUR:
+      chip->keypad[0xC] = false;
+      break;
+    case KEY_Q:
+      chip->keypad[0x4] = false;
+      break;
+    case KEY_W:
+      chip->keypad[0x5] = false;
+      break;
+    case KEY_E:
+      chip->keypad[0x6] = false;
+      break;
+    case KEY_R:
+      chip->keypad[0xD] = false;
+      break;
+    case KEY_A:
+      chip->keypad[0x7] = false;
+      break;
+    case KEY_S:
+      chip->keypad[0x8] = false;
+      break;
+    case KEY_D:
+      chip->keypad[0x9] = false;
+      break;
+    case KEY_F:
+      chip->keypad[0xE] = false;
+      break;
+    case KEY_Z:
+      chip->keypad[0xA] = false;
+      break;
+    case KEY_X:
+      chip->keypad[0x0] = false;
+      break;
+    case KEY_C:
+      chip->keypad[0xB] = false;
+      break;
+    case KEY_V:
+      chip->keypad[0xF] = false;
+      break;
+    }
+  }
+}
+
 int main(int argc, char *argv[]) {
   chip_8 chip8;
 
@@ -181,6 +289,7 @@ int main(int argc, char *argv[]) {
 
     draw_screen(&chip8);
     update_timer(&chip8);
+    get_input(&chip8);
 
     EndDrawing();
   }
