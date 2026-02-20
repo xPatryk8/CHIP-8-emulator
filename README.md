@@ -27,7 +27,6 @@ Raylib is automatically downloaded and built by CMake.
 **Esc:** exit
 
 ## ToDo
-- Add all instructions
 - Add keypad
 - Add sound
 - Add links to used resources
