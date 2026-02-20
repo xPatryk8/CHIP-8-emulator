@@ -2,12 +2,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "raylib.h"
 
-#define INSTURCTIONS_PER_SECOND 700
-#define FPS 60
+#define INSTURCTIONS_PER_SECOND 800
+#define FPS 500
 #define INSTRUCTIONS_PER_FRAME (INSTURCTIONS_PER_SECOND / FPS)
 
 #define SCALING_FACTOR 15
@@ -72,6 +73,10 @@ bool chip_init(chip_8 *chip, char *path) {
 
   chip->program_counter = 0x200;
   chip->stack_pointer = &chip->stack[0];
+  chip->delay_timer = 0;
+  chip->sound_timer = 0;
+
+  fclose(ROM);
 
   return true;
 }
@@ -90,15 +95,39 @@ void emulate(chip_8 *chip) {
 
   switch (instruction.text & 0xF000) {
   case 0x0000:
-    switch (instruction.text & 0x000F) {
-    case 0x0000: // 00E0 - clear display
+    switch (instruction.text & 0x00FF) {
+    case 0x00E0: // 00E0 - clear display
       memset(chip->display, false, sizeof(chip->display));
+      break;
+    case 0x00EE: // 00EE - return subroutine
+      chip->stack_pointer--;
+      chip->program_counter = *chip->stack_pointer;
       break;
     }
     break;
-
   case 0x1000: // 1NNN - jump to NNN
     chip->program_counter = instruction.NNN;
+    break;
+  case 0x2000: // 2NNN - call subroutine at NNN
+    if (chip->stack_pointer > &chip->stack[16]) {
+      printf("ERROR: Stack overflow!");
+      return;
+    }
+    *chip->stack_pointer = chip->program_counter;
+    chip->stack_pointer++;
+    chip->program_counter = instruction.NNN;
+    break;
+  case 0x3000: // 3XNN - skip instruction if VX = NN
+    if (chip->registers[instruction.X] == instruction.NN)
+      chip->program_counter += 2;
+    break;
+  case 0x4000: // 4XNN - skip if VX != NN
+    if (chip->registers[instruction.X] != instruction.NN)
+      chip->program_counter += 2;
+    break;
+  case 0x5000: // 5XY0 - skip if VX = VY
+    if (chip->registers[instruction.X] == chip->registers[instruction.Y])
+      chip->program_counter += 2;
     break;
   case 0x6000: // 6XNN - set VX to NN
     chip->registers[instruction.X] = instruction.NN;
@@ -106,8 +135,71 @@ void emulate(chip_8 *chip) {
   case 0x7000: // 7XNN - add NN to VX
     chip->registers[instruction.X] += instruction.NN;
     break;
+  case 0x8000:
+    switch (instruction.text & 0x000F) {
+    case 0x0000: // 8XY0 - set VX to VY
+      chip->registers[instruction.X] = chip->registers[instruction.Y];
+      break;
+    case 0x0001: // 8XY1 - set VX to VX | VY
+      chip->registers[instruction.X] |= chip->registers[instruction.Y];
+      break;
+    case 0x0002: // 8XY2 - set VX to VX & VY
+      chip->registers[instruction.X] &= chip->registers[instruction.Y];
+      break;
+    case 0x0003: // 8XY3 - set VX to VX ^ VY
+      chip->registers[instruction.X] ^= chip->registers[instruction.Y];
+      break;
+    case 0x0004: // 8XY4 - add VY to VX, VF is set to 1 if there's overflow
+      uint16_t sum =
+          chip->registers[instruction.X] + chip->registers[instruction.Y];
+      if (sum > 0xFF)
+        chip->registers[0xF] = 1;
+      else
+        chip->registers[0xF] = 0;
+
+      chip->registers[instruction.X] = (uint8_t)sum;
+      break;
+    case 0x0005: // 8XY5 - subtract VY from VX, set VF if underflow
+      if (chip->registers[instruction.X] >= chip->registers[instruction.Y])
+        chip->registers[0xF] = 1;
+      else
+        chip->registers[0xF] = 0;
+
+      chip->registers[instruction.X] -= chip->registers[instruction.Y];
+      break;
+    case 0x0006: // 8XY6 - shifts VX to right by 1, stores least significant bit
+                 // in VF
+      chip->registers[0xF] = chip->registers[instruction.X] & 0x01;
+      chip->registers[instruction.X] >>= 1;
+      break;
+    case 0x0007: // 8XY7 - set VX TO VY - VX, set VF to 0 if ubderflow
+      if (chip->registers[instruction.Y] >= chip->registers[instruction.X])
+        chip->registers[0xF] = 1;
+      else
+        chip->registers[0xF] = 0;
+
+      chip->registers[instruction.X] =
+          chip->registers[instruction.Y] - chip->registers[instruction.X];
+      break;
+    case 0x000E: // 8XYE - shifts VX to left by 1, sets VF to 1 if most
+                 // significant bit was set
+      chip->registers[0xF] = chip->registers[instruction.X] >> 7;
+      chip->registers[instruction.X] <<= 1;
+      break;
+    }
+    break;
+  case 0x9000: // 9XY0 - skip if VX != VY
+    if (chip->registers[instruction.X] != chip->registers[instruction.Y])
+      chip->program_counter += 2;
+    break;
   case 0xA000: // ANNN - set I to NNN
     chip->register_I = instruction.NNN;
+    break;
+  case 0xB000: // BNNN - jump to NNN + V0;
+    chip->program_counter = instruction.NNN + chip->registers[0];
+    break;
+  case 0xC000: // CXNN - set VX to and on a random number
+    chip->registers[instruction.X] = (rand() % 256) & instruction.NN;
     break;
   case 0xD000: // DXYN - draw sprite
     uint8_t x_pos = chip->registers[instruction.X] % 64;
@@ -136,6 +228,62 @@ void emulate(chip_8 *chip) {
       }
     }
     break;
+  case 0xE000:
+    switch (instruction.text & 0x00FF) {
+    case 0x009E: // EX9E - skip if key in VX is pressed
+      if (chip->keypad[chip->registers[instruction.X]] == 1)
+        chip->program_counter += 2;
+      break;
+    case 0x00A1: // EXA1 - skip if key in VX is not pressed
+      if (chip->keypad[chip->registers[instruction.X]] == 0)
+        chip->program_counter += 2;
+      break;
+    }
+    break;
+  case 0xF000:
+    switch (instruction.text & 0x00FF) {
+    case 0x0007: // FX07 - set VX to delay timer
+      chip->registers[instruction.X] = chip->delay_timer;
+      break;
+    case 0x000A: // FX0A - wait for key and sotre in VX
+      bool key_pressed = false;
+      for (uint8_t i = 0; i < 16; i++)
+        if (chip->keypad[i]) {
+          key_pressed = true;
+          chip->registers[instruction.X] = i;
+          break;
+        }
+      if (!key_pressed)
+        chip->program_counter -= 2;
+      break;
+    case 0x0015: // FX15 - set delay_timer to VX
+      chip->delay_timer = chip->registers[instruction.X];
+      break;
+    case 0x0018: // FX18 - set sound timer to VX
+      chip->sound_timer = chip->registers[instruction.X];
+      break;
+    case 0x001E: // FX1E - add VX to I
+      chip->register_I += chip->registers[instruction.X];
+      break;
+    case 0x0029: // FX29 - set I to location of sprite for charachter in VX
+      chip->register_I = 0x50 + (chip->registers[instruction.X] & 0x0F) * 5;
+      break;
+    case 0x0033: // FX33 - stores binary-coded decimal representation of VX
+      chip->memory[chip->register_I] = chip->registers[instruction.X] / 100;
+      chip->memory[chip->register_I + 1] =
+          (chip->registers[instruction.X] / 10) % 10;
+      chip->memory[chip->register_I + 2] = chip->registers[instruction.X] % 10;
+      break;
+    case 0x0055: // FX55 - store all registers in memory
+      for (uint8_t i = 0; i <= instruction.X; i++)
+        chip->memory[chip->register_I + i] = chip->registers[i];
+      break;
+    case 0x0065: // FX65 - load values from memory to registers
+      for (uint8_t i = 0; i <= instruction.X; i++)
+        chip->registers[i] = chip->memory[chip->register_I + i];
+      break;
+    }
+    break;
   }
 }
 
@@ -159,111 +307,72 @@ void draw_screen(chip_8 *chip) {
 }
 
 void get_input(chip_8 *chip) {
-  KeyboardKey key;
-  key = GetKeyPressed();
-  if (IsKeyPressed(key)) {
-    switch (key) {
-    case KEY_ONE:
-      chip->keypad[0x1] = true;
-      break;
-    case KEY_TWO:
-      chip->keypad[0x2] = true;
-      break;
-    case KEY_THREE:
-      chip->keypad[0x3] = true;
-      break;
-    case KEY_FOUR:
-      chip->keypad[0xC] = true;
-      break;
-    case KEY_Q:
-      chip->keypad[0x4] = true;
-      break;
-    case KEY_W:
-      chip->keypad[0x5] = true;
-      break;
-    case KEY_E:
-      chip->keypad[0x6] = true;
-      break;
-    case KEY_R:
-      chip->keypad[0xD] = true;
-      break;
-    case KEY_A:
-      chip->keypad[0x7] = true;
-      break;
-    case KEY_S:
-      chip->keypad[0x8] = true;
-      break;
-    case KEY_D:
-      chip->keypad[0x9] = true;
-      break;
-    case KEY_F:
-      chip->keypad[0xE] = true;
-      break;
-    case KEY_Z:
-      chip->keypad[0xA] = true;
-      break;
-    case KEY_X:
-      chip->keypad[0x0] = true;
-      break;
-    case KEY_C:
-      chip->keypad[0xB] = true;
-      break;
-    case KEY_V:
-      chip->keypad[0xF] = true;
-      break;
-    }
-  } else if (IsKeyReleased(key)) {
-    switch (key) {
-    case KEY_ONE:
-      chip->keypad[0x1] = false;
-      break;
-    case KEY_TWO:
-      chip->keypad[0x2] = false;
-      break;
-    case KEY_THREE:
-      chip->keypad[0x3] = false;
-      break;
-    case KEY_FOUR:
-      chip->keypad[0xC] = false;
-      break;
-    case KEY_Q:
-      chip->keypad[0x4] = false;
-      break;
-    case KEY_W:
-      chip->keypad[0x5] = false;
-      break;
-    case KEY_E:
-      chip->keypad[0x6] = false;
-      break;
-    case KEY_R:
-      chip->keypad[0xD] = false;
-      break;
-    case KEY_A:
-      chip->keypad[0x7] = false;
-      break;
-    case KEY_S:
-      chip->keypad[0x8] = false;
-      break;
-    case KEY_D:
-      chip->keypad[0x9] = false;
-      break;
-    case KEY_F:
-      chip->keypad[0xE] = false;
-      break;
-    case KEY_Z:
-      chip->keypad[0xA] = false;
-      break;
-    case KEY_X:
-      chip->keypad[0x0] = false;
-      break;
-    case KEY_C:
-      chip->keypad[0xB] = false;
-      break;
-    case KEY_V:
-      chip->keypad[0xF] = false;
-      break;
-    }
-  }
+
+  if (IsKeyPressed(KEY_ONE))
+    chip->keypad[0x1] = true;
+  if (IsKeyPressed(KEY_TWO))
+    chip->keypad[0x2] = true;
+  if (IsKeyPressed(KEY_THREE))
+    chip->keypad[0x3] = true;
+  if (IsKeyPressed(KEY_FOUR))
+    chip->keypad[0xC] = true;
+  if (IsKeyPressed(KEY_Q))
+    chip->keypad[0x4] = true;
+  if (IsKeyPressed(KEY_W))
+    chip->keypad[0x5] = true;
+  if (IsKeyPressed(KEY_E))
+    chip->keypad[0x6] = true;
+  if (IsKeyPressed(KEY_R))
+    chip->keypad[0xD] = true;
+  if (IsKeyPressed(KEY_A))
+    chip->keypad[0x7] = true;
+  if (IsKeyPressed(KEY_S))
+    chip->keypad[0x8] = true;
+  if (IsKeyPressed(KEY_D))
+    chip->keypad[0x9] = true;
+  if (IsKeyPressed(KEY_F))
+    chip->keypad[0xE] = true;
+  if (IsKeyPressed(KEY_Z))
+    chip->keypad[0xA] = true;
+  if (IsKeyPressed(KEY_X))
+    chip->keypad[0x0] = true;
+  if (IsKeyPressed(KEY_C))
+    chip->keypad[0xB] = true;
+  if (IsKeyPressed(KEY_V))
+    chip->keypad[0xF] = true;
+
+  if (IsKeyReleased(KEY_ONE))
+    chip->keypad[0x1] = false;
+  if (IsKeyReleased(KEY_TWO))
+    chip->keypad[0x2] = false;
+  if (IsKeyReleased(KEY_THREE))
+    chip->keypad[0x3] = false;
+  if (IsKeyReleased(KEY_FOUR))
+    chip->keypad[0xC] = false;
+  if (IsKeyReleased(KEY_Q))
+    chip->keypad[0x4] = false;
+  if (IsKeyReleased(KEY_W))
+    chip->keypad[0x5] = false;
+  if (IsKeyReleased(KEY_E))
+    chip->keypad[0x6] = false;
+  if (IsKeyReleased(KEY_R))
+    chip->keypad[0xD] = false;
+  if (IsKeyReleased(KEY_A))
+    chip->keypad[0x7] = false;
+  if (IsKeyReleased(KEY_S))
+    chip->keypad[0x8] = false;
+  if (IsKeyReleased(KEY_D))
+    chip->keypad[0x9] = false;
+  if (IsKeyReleased(KEY_F))
+    chip->keypad[0xE] = false;
+  if (IsKeyReleased(KEY_Z))
+    chip->keypad[0xA] = false;
+  if (IsKeyReleased(KEY_X))
+    chip->keypad[0x0] = false;
+  if (IsKeyReleased(KEY_C))
+    chip->keypad[0xB] = false;
+  if (IsKeyReleased(KEY_V))
+    chip->keypad[0xF] = false;
 }
 
 int main(int argc, char *argv[]) {
@@ -283,13 +392,11 @@ int main(int argc, char *argv[]) {
   while (!WindowShouldClose()) {
     BeginDrawing();
     ClearBackground(BLACK);
-    for (int i = 0; i < INSTRUCTIONS_PER_FRAME; i++) {
-      emulate(&chip8);
-    }
+    get_input(&chip8);
+    emulate(&chip8);
 
     draw_screen(&chip8);
     update_timer(&chip8);
-    get_input(&chip8);
 
     EndDrawing();
   }
