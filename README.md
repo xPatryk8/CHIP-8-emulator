@@ -16,8 +16,8 @@ Raylib is automatically downloaded and built by CMake.
 
     git clone https://github.com/xPatryk8/CHIP-8-emulator
     cd CHIP-8-emulator
-    cmake -B <path-to-build>
-    cmake --build <path-to-build> --config Release
+    cmake -B build
+    cmake --build build --config Release
 
 ## Usage
 
