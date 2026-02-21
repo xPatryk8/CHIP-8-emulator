@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,9 +8,7 @@
 
 #include "raylib.h"
 
-#define INSTURCTIONS_PER_SECOND 800
-#define FPS 500
-#define INSTRUCTIONS_PER_FRAME (INSTURCTIONS_PER_SECOND / FPS)
+#define INSTURCTIONS_PER_SECOND 700
 
 #define SCALING_FACTOR 15
 
@@ -53,7 +52,16 @@ bool chip_init(chip_8 *chip, char *path) {
                     0xF0, 0x80, 0xF0, 0x80, 0xF0,  // E
                     0xF0, 0x80, 0xF0, 0x80, 0x80}; // F
 
+  memset(&chip->memory[0], 0, sizeof(chip->memory));
   memcpy(&chip->memory[0x050], font, sizeof(font));
+  memset(&chip->keypad[0], false, sizeof(chip->keypad));
+  memset(&chip->display, false, sizeof(chip->display));
+
+  chip->program_counter = 0x200;
+  chip->register_I = 0;
+  chip->stack_pointer = &chip->stack[0];
+  chip->delay_timer = 0;
+  chip->sound_timer = 0;
 
   FILE *ROM = fopen(path, "rb");
   if (!ROM) {
@@ -70,11 +78,6 @@ bool chip_init(chip_8 *chip, char *path) {
     printf("ERROR: Can't read ROM to memory");
     return false;
   }
-
-  chip->program_counter = 0x200;
-  chip->stack_pointer = &chip->stack[0];
-  chip->delay_timer = 0;
-  chip->sound_timer = 0;
 
   fclose(ROM);
 
@@ -149,7 +152,7 @@ void emulate(chip_8 *chip) {
     case 0x0003: // 8XY3 - set VX to VX ^ VY
       chip->registers[instruction.X] ^= chip->registers[instruction.Y];
       break;
-    case 0x0004: // 8XY4 - add VY to VX, VF is set to 1 if there's overflow
+    case 0x0004: // 8XY4 - add VY to VX, VF is set to 1 if there's overflo
       uint16_t sum =
           chip->registers[instruction.X] + chip->registers[instruction.Y];
       if (sum > 0xFF)
@@ -231,11 +234,11 @@ void emulate(chip_8 *chip) {
   case 0xE000:
     switch (instruction.text & 0x00FF) {
     case 0x009E: // EX9E - skip if key in VX is pressed
-      if (chip->keypad[chip->registers[instruction.X]] == 1)
+      if (chip->keypad[chip->registers[instruction.X] & 0x0F] == 1)
         chip->program_counter += 2;
       break;
     case 0x00A1: // EXA1 - skip if key in VX is not pressed
-      if (chip->keypad[chip->registers[instruction.X]] == 0)
+      if (chip->keypad[chip->registers[instruction.X] & 0x0F] == 0)
         chip->program_counter += 2;
       break;
     }
@@ -307,72 +310,16 @@ void draw_screen(chip_8 *chip) {
 }
 
 void get_input(chip_8 *chip) {
+  KeyboardKey keys[16] = {KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_Q, KEY_W,
+                          KEY_E,   KEY_R,   KEY_A,     KEY_S,    KEY_D, KEY_F,
+                          KEY_Z,   KEY_X,   KEY_C,     KEY_V};
 
-  if (IsKeyPressed(KEY_ONE))
-    chip->keypad[0x1] = true;
-  if (IsKeyPressed(KEY_TWO))
-    chip->keypad[0x2] = true;
-  if (IsKeyPressed(KEY_THREE))
-    chip->keypad[0x3] = true;
-  if (IsKeyPressed(KEY_FOUR))
-    chip->keypad[0xC] = true;
-  if (IsKeyPressed(KEY_Q))
-    chip->keypad[0x4] = true;
-  if (IsKeyPressed(KEY_W))
-    chip->keypad[0x5] = true;
-  if (IsKeyPressed(KEY_E))
-    chip->keypad[0x6] = true;
-  if (IsKeyPressed(KEY_R))
-    chip->keypad[0xD] = true;
-  if (IsKeyPressed(KEY_A))
-    chip->keypad[0x7] = true;
-  if (IsKeyPressed(KEY_S))
-    chip->keypad[0x8] = true;
-  if (IsKeyPressed(KEY_D))
-    chip->keypad[0x9] = true;
-  if (IsKeyPressed(KEY_F))
-    chip->keypad[0xE] = true;
-  if (IsKeyPressed(KEY_Z))
-    chip->keypad[0xA] = true;
-  if (IsKeyPressed(KEY_X))
-    chip->keypad[0x0] = true;
-  if (IsKeyPressed(KEY_C))
-    chip->keypad[0xB] = true;
-  if (IsKeyPressed(KEY_V))
-    chip->keypad[0xF] = true;
-
-  if (IsKeyReleased(KEY_ONE))
-    chip->keypad[0x1] = false;
-  if (IsKeyReleased(KEY_TWO))
-    chip->keypad[0x2] = false;
-  if (IsKeyReleased(KEY_THREE))
-    chip->keypad[0x3] = false;
-  if (IsKeyReleased(KEY_FOUR))
-    chip->keypad[0xC] = false;
-  if (IsKeyReleased(KEY_Q))
-    chip->keypad[0x4] = false;
-  if (IsKeyReleased(KEY_W))
-    chip->keypad[0x5] = false;
-  if (IsKeyReleased(KEY_E))
-    chip->keypad[0x6] = false;
-  if (IsKeyReleased(KEY_R))
-    chip->keypad[0xD] = false;
-  if (IsKeyReleased(KEY_A))
-    chip->keypad[0x7] = false;
-  if (IsKeyReleased(KEY_S))
-    chip->keypad[0x8] = false;
-  if (IsKeyReleased(KEY_D))
-    chip->keypad[0x9] = false;
-  if (IsKeyReleased(KEY_F))
-    chip->keypad[0xE] = false;
-  if (IsKeyReleased(KEY_Z))
-    chip->keypad[0xA] = false;
-  if (IsKeyReleased(KEY_X))
-    chip->keypad[0x0] = false;
-  if (IsKeyReleased(KEY_C))
-    chip->keypad[0xB] = false;
-  if (IsKeyReleased(KEY_V))
-    chip->keypad[0xF] = false;
+  for (int i = 0; i < 16; i++) {
+    if (IsKeyPressed(keys[i]))
+      chip->keypad[i] = true;
+    else if (IsKeyReleased(keys[i]))
+      chip->keypad[i] = false;
+  }
 }
 
 int main(int argc, char *argv[]) {
@@ -387,16 +334,22 @@ int main(int argc, char *argv[]) {
   }
 
   InitWindow(64 * SCALING_FACTOR, 32 * SCALING_FACTOR, "CHIP-8");
-  SetTargetFPS(FPS);
+
+  uint32_t time = 1000 / INSTURCTIONS_PER_SECOND;
+  uint32_t hertz = 1000 / 60;
 
   while (!WindowShouldClose()) {
     BeginDrawing();
     ClearBackground(BLACK);
     get_input(&chip8);
-    emulate(&chip8);
 
-    draw_screen(&chip8);
-    update_timer(&chip8);
+    for (uint32_t i = 0; i < time; i++)
+      emulate(&chip8);
+
+    for (uint32_t i = 0; i < hertz; i++) {
+      draw_screen(&chip8);
+      update_timer(&chip8);
+    }
 
     EndDrawing();
   }
