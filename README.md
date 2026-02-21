@@ -13,8 +13,8 @@ Raylib is automatically downloaded and built by CMake.
 
 ### Compilation
 
- cmake -B <path-to-build>
- cmake --build <path-to-build> --config Release
+    cmake -B <path-to-build>
+    cmake --build <path-to-build> --config Release
 
 ## Usage
 
