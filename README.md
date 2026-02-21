@@ -1,10 +1,11 @@
+
 ### CHIP-8 Emulator
 
 CHIP-8 emulator written in C using Raylib.
 
 ## Building
 
-### Requriments
+### Requirements
 
 - C compiler
 - Cmake 3.14 or higher
@@ -20,7 +21,7 @@ Raylib is automatically downloaded and built by CMake.
 
 ## Usage
 
-    chip-8 <path-to-ROM
+    chip-8 <path-to-ROM>
 
 ## Controls
 
